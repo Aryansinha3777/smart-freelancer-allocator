@@ -6,9 +6,16 @@ import {
   updateFreelancerProfile,
 } from "../api/freelancerApi.js";
 import { getMyAssignments } from "../api/allocationApi.js";
+import { updateProjectStatus } from "../api/projectApi.js";
 import ScheduleTimeline from "../components/ScheduleTimeline.jsx";
 
 const SKILLS = ["Frontend", "Backend", "Design", "Mobile", "DevOps", "Data Science", "QA"];
+
+// What button label and next status to show based on current project status
+const statusAction = {
+  assigned: { label: "Mark as In Progress", next: "in_progress" },
+  in_progress: { label: "Mark as Completed", next: "completed" },
+};
 
 const FreelancerDashboard = () => {
   const { user } = useSelector((state) => state.auth);
@@ -17,6 +24,8 @@ const FreelancerDashboard = () => {
   const [assignments, setAssignments] = useState([]);
   const [profileLoading, setProfileLoading] = useState(true);
   const [showProfileForm, setShowProfileForm] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(null);
+  const [statusError, setStatusError] = useState("");
 
   const [formData, setFormData] = useState({
     skills: [],
@@ -74,7 +83,11 @@ const FreelancerDashboard = () => {
     try {
       if (profile) {
         const { data } = await updateFreelancerProfile(formData);
-        setProfile(data);
+        setProfile(data.profile);
+        if (data.warnings?.length > 0) {
+          setFormError(data.warnings.join(" | "));
+          return;
+        }
       } else {
         const { data } = await createFreelancerProfile(formData);
         setProfile(data);
@@ -84,6 +97,22 @@ const FreelancerDashboard = () => {
       setFormError(err.response?.data?.message || "Failed to save profile");
     } finally {
       setFormLoading(false);
+    }
+  };
+
+  const handleStatusUpdate = async (projectId, nextStatus) => {
+    setUpdatingStatus(projectId);
+    setStatusError("");
+    try {
+      await updateProjectStatus(projectId, nextStatus);
+      // Refresh assignments to reflect new status
+      await fetchAssignments();
+      // Refresh profile to reflect updated workload if completed
+      if (nextStatus === "completed") await fetchProfile();
+    } catch (err) {
+      setStatusError(err.response?.data?.message || "Failed to update status");
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
@@ -272,9 +301,18 @@ const FreelancerDashboard = () => {
         </div>
       )}
 
+      {/* Status error */}
+      {statusError && (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-lg mb-4">
+          {statusError}
+        </div>
+      )}
+
       {/* Active Assignments */}
       <div>
-        <h2 className="text-base font-semibold text-slate-700 mb-4">Active Assignments</h2>
+        <h2 className="text-base font-semibold text-slate-700 mb-4">
+          Active Assignments
+        </h2>
         {assignments.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <p className="text-lg mb-1">No active assignments</p>
@@ -282,50 +320,83 @@ const FreelancerDashboard = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {assignments.map((assignment) => (
-              <div
-                key={assignment._id}
-                className="bg-white border border-gray-200 rounded-xl p-5"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-medium text-slate-800">
-                      {assignment.projectId?.title}
-                    </h3>
-                    <p className="text-sm text-slate-400 mt-0.5">
-                      {assignment.projectId?.requiredSkill}
-                    </p>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                    assignment.projectId?.priority === "urgent"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-slate-100 text-slate-600"
-                  }`}>
-                    {assignment.projectId?.priority}
-                  </span>
-                </div>
+            {assignments.map((assignment) => {
+              const currentStatus = assignment.projectId?.status;
+              const action = statusAction[currentStatus];
 
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Assigned Hours</p>
-                    <p className="text-sm font-medium text-slate-700">
-                      {assignment.assignedHours}h
-                    </p>
+              return (
+                <div
+                  key={assignment._id}
+                  className="bg-white border border-gray-200 rounded-xl p-5"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-medium text-slate-800">
+                        {assignment.projectId?.title}
+                      </h3>
+                      <p className="text-sm text-slate-400 mt-0.5">
+                        {assignment.projectId?.requiredSkill}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        assignment.projectId?.priority === "urgent"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {assignment.projectId?.priority}
+                      </span>
+                      <span className={`text-xs px-2 py-1 rounded-full border font-medium ${
+                        currentStatus === "in_progress"
+                          ? "bg-purple-50 text-purple-700 border-purple-200"
+                          : "bg-blue-50 text-blue-700 border-blue-200"
+                      }`}>
+                        {currentStatus?.replace("_", " ")}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Deadline</p>
-                    <p className="text-sm font-medium text-slate-700">
-                      {new Date(assignment.projectId?.deadline).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
 
-                <ScheduleTimeline
-                  schedule={assignment.schedule}
-                  estimatedCompletionDate={assignment.estimatedCompletionDate}
-                />
-              </div>
-            ))}
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <p className="text-xs text-slate-400">Assigned Hours</p>
+                      <p className="text-sm font-medium text-slate-700">
+                        {assignment.assignedHours}h
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">Deadline</p>
+                      <p className="text-sm font-medium text-slate-700">
+                        {new Date(assignment.projectId?.deadline).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <ScheduleTimeline
+                    schedule={assignment.schedule}
+                    estimatedCompletionDate={assignment.estimatedCompletionDate}
+                  />
+
+                  {/* Status update button — only shown if action exists */}
+                  {action && (
+                    <button
+                      onClick={() =>
+                        handleStatusUpdate(assignment.projectId._id, action.next)
+                      }
+                      disabled={updatingStatus === assignment.projectId._id}
+                      className={`w-full mt-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                        action.next === "completed"
+                          ? "bg-green-600 text-white hover:bg-green-700"
+                          : "bg-slate-800 text-white hover:bg-slate-700"
+                      }`}
+                    >
+                      {updatingStatus === assignment.projectId._id
+                        ? "Updating..."
+                        : action.label}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
