@@ -12,3 +12,6 @@ export const reassignProject = (assignmentId) =>
   axiosInstance.put(`/allocation/reassign/${assignmentId}`);
 
 export const getAllAssignments = () => axiosInstance.get("/allocation/all");
+
+export const cleanupExpiredAssignments = () =>
+  axiosInstance.post("/allocation/cleanup");

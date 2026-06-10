@@ -207,3 +207,53 @@ export const reassignProject = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Auto-expire assignments where project deadline has passed
+// @route   POST /api/allocation/cleanup
+// @access  Private (admin only)
+export const cleanupExpiredAssignments = async (req, res) => {
+  try {
+    const today = new Date();
+
+    // Find all active assignments where project deadline has passed
+    const expiredAssignments = await Assignment.find({
+      status: "active",
+    }).populate("projectId", "deadline status title");
+
+    const expiredOnes = expiredAssignments.filter(
+      (a) =>
+        a.projectId &&
+        new Date(a.projectId.deadline) < today &&
+        a.projectId.status !== "completed"
+    );
+
+    if (expiredOnes.length === 0) {
+      return res.json({ message: "No expired assignments found", cleaned: 0 });
+    }
+
+    // For each expired assignment — release workload and cancel
+    for (const assignment of expiredOnes) {
+      // Release freelancer workload
+      await Freelancer.findByIdAndUpdate(assignment.freelancerId, {
+        $inc: { currentLoad: -assignment.assignedHours },
+      });
+
+      // Mark assignment as cancelled
+      await Assignment.findByIdAndUpdate(assignment._id, {
+        status: "cancelled",
+      });
+
+      // Mark project as cancelled
+      await Project.findByIdAndUpdate(assignment.projectId._id, {
+        status: "cancelled",
+      });
+    }
+
+    res.json({
+      message: `${expiredOnes.length} expired assignment(s) cleaned up`,
+      cleaned: expiredOnes.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getAllProjectsAdmin, getAllFreelancersAdmin, reassignProjectAdmin } from "../api/adminApi.js";
-import { getAllAssignments } from "../api/allocationApi.js";
+import { getAllAssignments,cleanupExpiredAssignments } from "../api/allocationApi.js";
 import ProjectCard from "../components/ProjectCard.jsx";
 
 const AdminDashboard = () => {
@@ -18,6 +18,10 @@ const AdminDashboard = () => {
   const fetchAll = async () => {
     setLoading(true);
     try {
+      
+      // Clean up expired assignments before fetching fresh data
+      await cleanupExpiredAssignments();
+
       const [pRes, fRes, aRes] = await Promise.all([
         getAllProjectsAdmin(),
         getAllFreelancersAdmin(),
