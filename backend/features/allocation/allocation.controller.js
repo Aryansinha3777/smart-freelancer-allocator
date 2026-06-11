@@ -170,11 +170,14 @@ export const reassignProject = async (req, res) => {
       });
     }
 
-    // Only now — engine found someone — safe to modify DB
-    // Release workload from current freelancer
-    await Freelancer.findByIdAndUpdate(assignment.freelancerId, {
-      $inc: { currentLoad: -assignment.assignedHours },
-    });
+    // Safe — never goes below zero
+    const freelancer = await Freelancer.findById(assignment.freelancerId);
+      if (freelancer) {
+        const newLoad = Math.max(0, freelancer.currentLoad - assignment.assignedHours);
+        await Freelancer.findByIdAndUpdate(assignment.freelancerId, {
+          currentLoad: newLoad,
+        });
+      }
 
     // Mark old assignment as reassigned
     await Assignment.findByIdAndUpdate(assignment._id, {
