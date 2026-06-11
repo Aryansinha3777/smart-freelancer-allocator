@@ -3,8 +3,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { setProjects, addProject } from "../store/projectSlice.js";
 import { createProject, getMyProjects } from "../api/projectApi.js";
 import { assignProject, getAssignmentByProject } from "../api/allocationApi.js";
+import { rateFreelancer } from "../api/freelancerApi.js";
 import ProjectCard from "../components/ProjectCard.jsx";
 import ScheduleTimeline from "../components/ScheduleTimeline.jsx";
+import StarRating from "../components/StarRating.jsx";
 import { CardSkeleton, StatSkeleton } from "../components/Skeleton.jsx";
 
 const SKILLS = ["Frontend", "Backend", "Design", "Mobile", "DevOps", "Data Science", "QA"];
@@ -29,6 +31,10 @@ const ClientDashboard = () => {
   const [allocationResult, setAllocationResult] = useState(null);
   const [allocating, setAllocating] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
+
+  // Rating state
+  const [ratingLoading, setRatingLoading] = useState(null);
+  const [ratingSuccess, setRatingSuccess] = useState({});
 
   useEffect(() => {
     fetchProjects();
@@ -111,8 +117,24 @@ const ClientDashboard = () => {
     }
   };
 
+  const handleRating = async (projectId, freelancerId, stars) => {
+    setRatingLoading(projectId);
+    try {
+      await rateFreelancer(freelancerId, { rating: stars, projectId });
+      setRatingSuccess((prev) => ({ ...prev, [projectId]: stars }));
+      fetchProjects(); // refresh to get updated isRated flag
+    } catch (err) {
+      console.error(err.response?.data?.message || "Rating failed");
+    } finally {
+      setRatingLoading(null);
+    }
+  };
+
   const pendingCount = projects.filter((p) => p.status === "pending").length;
-  const assignedCount = projects.filter((p) => p.status !== "pending").length;
+  const assignedCount = projects.filter(
+    (p) => p.status === "assigned" || p.status === "in_progress"
+  ).length;
+  const completedCount = projects.filter((p) => p.status === "completed").length;
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
@@ -136,13 +158,14 @@ const ClientDashboard = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-4 gap-4 mb-8">
         {pageLoading
-          ? [1, 2, 3].map((i) => <StatSkeleton key={i} />)
+          ? [1, 2, 3, 4].map((i) => <StatSkeleton key={i} />)
           : [
-              { label: "Total Projects", value: projects.length, color: "text-slate-800" },
+              { label: "Total", value: projects.length, color: "text-slate-800" },
               { label: "Pending", value: pendingCount, color: "text-yellow-600" },
-              { label: "Assigned", value: assignedCount, color: "text-blue-600" },
+              { label: "In Progress", value: assignedCount, color: "text-blue-600" },
+              { label: "Completed", value: completedCount, color: "text-green-600" },
             ].map((stat) => (
               <div key={stat.label} className="bg-white border border-gray-200 rounded-xl p-5">
                 <p className="text-xs text-slate-400 mb-1">{stat.label}</p>
@@ -317,16 +340,41 @@ const ClientDashboard = () => {
             <p className="text-sm">Create your first project to get started</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.map((project) => (
-              <ProjectCard
-                key={project._id}
-                project={project}
-                assignment={assignments[project._id]}
-                onAssign={handleAssign}
-                isAllocating={allocating === project._id}
-              />
-            ))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {projects.map((project) => {
+              const assignment = assignments[project._id];
+              const freelancerId = assignment?.freelancerId?._id;
+              const alreadyRated = project.isRated || ratingSuccess[project._id];
+
+              // Build rating UI to pass into ProjectCard
+              let ratingUI = null;
+              if (project.status === "completed" && freelancerId) {
+                ratingUI = alreadyRated ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-yellow-400 text-lg">
+                      {"★".repeat(ratingSuccess[project._id] || 5)}
+                    </span>
+                    <span className="text-xs text-slate-500">Rating submitted</span>
+                  </div>
+                ) : (
+                  <StarRating
+                    onSubmit={(stars) => handleRating(project._id, freelancerId, stars)}
+                    loading={ratingLoading === project._id}
+                  />
+                );
+              }
+
+              return (
+                <ProjectCard
+                  key={project._id}
+                  project={project}
+                  assignment={assignment}
+                  onAssign={handleAssign}
+                  isAllocating={allocating === project._id}
+                  ratingComponent={ratingUI}
+                />
+              );
+            })}
           </div>
         )}
       </div>

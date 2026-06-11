@@ -41,6 +41,10 @@ const projectSchema = new mongoose.Schema(
       enum: ["pending", "assigned", "in_progress", "completed", "cancelled"],
       default: "pending",
     },
+    isRated: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

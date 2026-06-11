@@ -226,6 +226,14 @@ const AdminDashboard = () => {
                     style={{ width: `${Math.min(workloadPercent, 100)}%` }}
                   />
                 </div>
+                
+                {f.rating > 0 && (
+                <div className="flex items-center gap-1 mb-2">
+                  <span className="text-yellow-400 text-sm">★</span>
+                  <span className="text-sm font-medium text-slate-700">{f.rating}</span>
+                  <span className="text-xs text-slate-400">({f.totalRatings} {f.totalRatings === 1 ? "rating" : "ratings"})</span>
+                </div>
+                )}
 
                 <div className="flex flex-wrap gap-1">
                   {f.skills.map((skill) => (

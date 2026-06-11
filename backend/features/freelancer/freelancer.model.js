@@ -37,6 +37,11 @@ const freelancerSchema = new mongoose.Schema(
       min: 0,
       max: 5,
     },
+    // tracks how many ratings contributed to the average
+    totalRatings: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );

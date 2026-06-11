@@ -11,7 +11,15 @@ const priorityStyles = {
   normal: "bg-slate-100 text-slate-600",
 };
 
-const ProjectCard = ({ project, onAssign, assignment, onReassign, isAdmin, isAllocating }) => {
+const ProjectCard = ({
+  project,
+  onAssign,
+  assignment,
+  onReassign,
+  isAdmin,
+  isAllocating,
+  ratingComponent,  // receives the rating UI as a prop
+}) => {
   const deadline = new Date(project.deadline);
   const today = new Date();
   const daysLeft = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
@@ -86,6 +94,13 @@ const ProjectCard = ({ project, onAssign, assignment, onReassign, isAdmin, isAll
           </button>
         )}
       </div>
+
+      {/* Rating UI injected from parent */}
+      {ratingComponent && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          {ratingComponent}
+        </div>
+      )}
     </div>
   );
 };

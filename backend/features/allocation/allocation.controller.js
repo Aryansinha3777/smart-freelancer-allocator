@@ -79,7 +79,7 @@ export const getAssignmentByProject = async (req, res) => {
   try {
     const assignment = await Assignment.findOne({
       projectId: req.params.projectId,
-      status: "active",          
+      status: { $in: ["active", "completed"] }, // ← fetch both
     })
       .populate("projectId", "title requiredSkill deadline priority status")
       .populate({

@@ -77,3 +77,70 @@ export const getAllFreelancers = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+
+export const rateFreelancer = async (req, res) => {
+  try {
+    const { rating, projectId } = req.body;
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: "Rating must be between 1 and 5" });
+    }
+
+    // Verify this project belongs to this client
+    const Project = (await import("../project/project.model.js")).default;
+    const project = await Project.findById(projectId);
+
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    if (project.clientId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    if (project.status !== "completed") {
+      return res.status(400).json({
+        message: "Can only rate after project is completed",
+      });
+    }
+
+    // Check this project hasn't already been rated
+    if (project.isRated) {
+      return res.status(400).json({
+        message: "You have already rated this project",
+      });
+    }
+
+    // Get freelancer profile
+    const freelancer = await Freelancer.findById(req.params.freelancerId);
+
+    if (!freelancer) {
+      return res.status(404).json({ message: "Freelancer not found" });
+    }
+
+    // Calculate new average rating
+    // formula: ((currentRating * totalRatings) + newRating) / (totalRatings + 1)
+    const totalRatings = freelancer.totalRatings || 0;
+    const currentRating = freelancer.rating || 0;
+    const newAverage =
+      (currentRating * totalRatings + rating) / (totalRatings + 1);
+
+    // Update freelancer rating
+    await Freelancer.findByIdAndUpdate(freelancer._id, {
+      rating: Math.round(newAverage * 10) / 10, // round to 1 decimal
+      totalRatings: totalRatings + 1,
+    });
+
+    // Mark project as rated so client can't rate twice
+    await Project.findByIdAndUpdate(projectId, { isRated: true });
+
+    res.json({
+      message: "Rating submitted successfully",
+      newRating: Math.round(newAverage * 10) / 10,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

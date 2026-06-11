@@ -10,3 +10,6 @@ export const updateFreelancerProfile = (data) =>
   axiosInstance.put("/freelancer/profile", data);
 
 export const getAllFreelancers = () => axiosInstance.get("/freelancer/all");
+
+export const rateFreelancer = (freelancerId, data) =>
+  axiosInstance.post(`/freelancer/rate/${freelancerId}`, data);
