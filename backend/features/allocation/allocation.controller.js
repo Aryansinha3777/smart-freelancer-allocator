@@ -2,6 +2,7 @@ import Project from "../project/project.model.js";
 import Freelancer from "../freelancer/freelancer.model.js";
 import Assignment from "./allocation.model.js";
 import runAllocationEngine from "./allocationEngine.js";
+import createNotification from "../notification/notification.service.js";
 
 // @desc    Trigger allocation for a project
 // @route   POST /api/allocation/assign/:projectId
@@ -14,7 +15,6 @@ export const assignProject = async (req, res) => {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Only the client who owns the project can trigger allocation
     if (project.clientId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Not authorized" });
     }
@@ -25,13 +25,9 @@ export const assignProject = async (req, res) => {
       });
     }
 
-    // Fetch all available freelancers from DB
     const freelancers = await Freelancer.find({ isAvailable: true });
-
-    // Run the engine — pure logic
     const result = runAllocationEngine(project, freelancers);
 
-    // Engine failed — return suggestions to client
     if (!result.success) {
       return res.status(200).json({
         success: false,
@@ -41,7 +37,6 @@ export const assignProject = async (req, res) => {
       });
     }
 
-    // Engine succeeded — save assignment
     const assignment = await Assignment.create({
       projectId: project._id,
       freelancerId: result.freelancer._id,
@@ -50,15 +45,20 @@ export const assignProject = async (req, res) => {
       estimatedCompletionDate: result.estimatedCompletionDate,
     });
 
-    // Update freelancer workload
     await Freelancer.findByIdAndUpdate(result.freelancer._id, {
       $inc: { currentLoad: result.assignedHours },
     });
 
-    // Update project status
     await Project.findByIdAndUpdate(project._id, { status: "assigned" });
 
-    // Return full assignment with populated fields
+    // Notify the assigned freelancer
+    await createNotification({
+      userId: result.freelancer.userId,
+      message: `You have been assigned a new project: "${project.title}"`,
+      type: "assignment",
+      projectId: project._id,
+    });
+
     const populated = await Assignment.findById(assignment._id)
       .populate("projectId", "title requiredSkill deadline priority estimatedHours")
       .populate({
@@ -79,7 +79,7 @@ export const getAssignmentByProject = async (req, res) => {
   try {
     const assignment = await Assignment.findOne({
       projectId: req.params.projectId,
-      status: { $in: ["active", "completed"] }, // ← fetch both
+      status: { $in: ["active", "completed"] },
     })
       .populate("projectId", "title requiredSkill deadline priority status")
       .populate({
@@ -102,9 +102,7 @@ export const getAssignmentByProject = async (req, res) => {
 // @access  Private (freelancer only)
 export const getMyAssignments = async (req, res) => {
   try {
-    const freelancerProfile = await (
-      await import("../freelancer/freelancer.model.js")
-    ).default.findOne({ userId: req.user._id });
+    const freelancerProfile = await Freelancer.findOne({ userId: req.user._id });
 
     if (!freelancerProfile) {
       return res.status(404).json({ message: "Freelancer profile not found" });
@@ -113,7 +111,10 @@ export const getMyAssignments = async (req, res) => {
     const assignments = await Assignment.find({
       freelancerId: freelancerProfile._id,
       status: "active",
-    }).populate("projectId", "title requiredSkill deadline priority estimatedHours status");
+    }).populate(
+      "projectId",
+      "title requiredSkill deadline priority estimatedHours status"
+    );
 
     res.json(assignments);
   } catch (error) {
@@ -127,12 +128,16 @@ export const getMyAssignments = async (req, res) => {
 export const getAllAssignments = async (req, res) => {
   try {
     const assignments = await Assignment.find()
-      .populate("projectId", "title requiredSkill deadline priority status estimatedHours")
+      .populate(
+        "projectId",
+        "title requiredSkill deadline priority status estimatedHours"
+      )
       .populate({
         path: "freelancerId",
         populate: { path: "userId", select: "name email" },
       })
       .sort({ createdAt: -1 });
+
     res.json(assignments);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -144,7 +149,10 @@ export const getAllAssignments = async (req, res) => {
 // @access  Private (admin only)
 export const reassignProject = async (req, res) => {
   try {
-    const assignment = await Assignment.findById(req.params.assignmentId);
+    const assignment = await Assignment.findById(req.params.assignmentId).populate({
+      path: "freelancerId",
+      populate: { path: "userId", select: "name email" },
+    });
 
     if (!assignment) {
       return res.status(404).json({ message: "Assignment not found" });
@@ -152,16 +160,14 @@ export const reassignProject = async (req, res) => {
 
     const project = await Project.findById(assignment.projectId);
 
-    // Fetch all freelancers except the current one
     const freelancers = await Freelancer.find({
       isAvailable: true,
-      _id: { $ne: assignment.freelancerId },
+      _id: { $ne: assignment.freelancerId._id },
     });
 
     // Run engine FIRST — before touching anything in DB
     const result = runAllocationEngine(project, freelancers);
 
-    // Engine failed — return suggestions, change NOTHING in DB
     if (!result.success) {
       return res.status(200).json({
         success: false,
@@ -170,21 +176,13 @@ export const reassignProject = async (req, res) => {
       });
     }
 
-    // Safe — never goes below zero
-    const freelancer = await Freelancer.findById(assignment.freelancerId);
-      if (freelancer) {
-        const newLoad = Math.max(0, freelancer.currentLoad - assignment.assignedHours);
-        await Freelancer.findByIdAndUpdate(assignment.freelancerId, {
-          currentLoad: newLoad,
-        });
-      }
+    // Engine found someone — safe to modify DB now
+    const oldFreelancer = await Freelancer.findById(assignment.freelancerId._id);
+    const newLoad = Math.max(0, oldFreelancer.currentLoad - assignment.assignedHours);
+    await Freelancer.findByIdAndUpdate(oldFreelancer._id, { currentLoad: newLoad });
 
-    // Mark old assignment as reassigned
-    await Assignment.findByIdAndUpdate(assignment._id, {
-      status: "reassigned",
-    });
+    await Assignment.findByIdAndUpdate(assignment._id, { status: "reassigned" });
 
-    // Create new assignment
     const newAssignment = await Assignment.create({
       projectId: project._id,
       freelancerId: result.freelancer._id,
@@ -193,9 +191,24 @@ export const reassignProject = async (req, res) => {
       estimatedCompletionDate: result.estimatedCompletionDate,
     });
 
-    // Add workload to new freelancer
     await Freelancer.findByIdAndUpdate(result.freelancer._id, {
       $inc: { currentLoad: result.assignedHours },
+    });
+
+    // Notify old freelancer — project taken away
+    await createNotification({
+      userId: assignment.freelancerId.userId._id,
+      message: `Project "${project.title}" has been reassigned to another freelancer`,
+      type: "reassignment",
+      projectId: project._id,
+    });
+
+    // Notify new freelancer — new assignment
+    await createNotification({
+      userId: result.freelancer.userId,
+      message: `You have been assigned a new project: "${project.title}"`,
+      type: "assignment",
+      projectId: project._id,
     });
 
     const populated = await Assignment.findById(newAssignment._id)
@@ -218,10 +231,9 @@ export const cleanupExpiredAssignments = async (req, res) => {
   try {
     const today = new Date();
 
-    // Find all active assignments where project deadline has passed
     const expiredAssignments = await Assignment.find({
       status: "active",
-    }).populate("projectId", "deadline status title");
+    }).populate("projectId", "deadline status title clientId");
 
     const expiredOnes = expiredAssignments.filter(
       (a) =>
@@ -234,21 +246,32 @@ export const cleanupExpiredAssignments = async (req, res) => {
       return res.json({ message: "No expired assignments found", cleaned: 0 });
     }
 
-    // For each expired assignment — release workload and cancel
     for (const assignment of expiredOnes) {
-      // Release freelancer workload
-      await Freelancer.findByIdAndUpdate(assignment.freelancerId, {
-        $inc: { currentLoad: -assignment.assignedHours },
-      });
+      const freelancer = await Freelancer.findById(assignment.freelancerId);
+      if (freelancer) {
+        const newLoad = Math.max(
+          0,
+          freelancer.currentLoad - assignment.assignedHours
+        );
+        await Freelancer.findByIdAndUpdate(freelancer._id, {
+          currentLoad: newLoad,
+        });
+      }
 
-      // Mark assignment as cancelled
       await Assignment.findByIdAndUpdate(assignment._id, {
         status: "cancelled",
       });
 
-      // Mark project as cancelled
       await Project.findByIdAndUpdate(assignment.projectId._id, {
         status: "cancelled",
+      });
+
+      // Notify client their project expired
+      await createNotification({
+        userId: assignment.projectId.clientId,
+        message: `Your project "${assignment.projectId.title}" was cancelled — deadline passed without completion`,
+        type: "status_update",
+        projectId: assignment.projectId._id,
       });
     }
 

@@ -1,6 +1,7 @@
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, Link } from "react-router-dom";
 import { logout } from "../store/authSlice.js";
+import NotificationBell from "./NotificationBell.jsx";
 
 const Navbar = () => {
   const dispatch = useDispatch();
@@ -27,7 +28,7 @@ const Navbar = () => {
         </Link>
 
         {isAuthenticated && (
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <Link
               to={dashboardPath}
               className="text-sm text-slate-600 hover:text-slate-900"
@@ -40,6 +41,7 @@ const Navbar = () => {
             <span className="text-sm font-medium text-slate-700">
               {user?.name}
             </span>
+            <NotificationBell />
             <button
               onClick={handleLogout}
               className="text-sm text-red-500 hover:text-red-700"
