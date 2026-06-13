@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setProjects, addProject } from "../store/projectSlice.js";
-import { createProject, getMyProjects } from "../api/projectApi.js";
+import { createProject, getMyProjects, updateProject } from "../api/projectApi.js";
 import { assignProject, getAssignmentByProject } from "../api/allocationApi.js";
 import { rateFreelancer } from "../api/freelancerApi.js";
 import ProjectCard from "../components/ProjectCard.jsx";
 import ScheduleTimeline from "../components/ScheduleTimeline.jsx";
 import StarRating from "../components/StarRating.jsx";
+import EditProjectModal from "../components/EditProjectModal.jsx";
 import { CardSkeleton, StatSkeleton } from "../components/Skeleton.jsx";
 
 const SKILLS = ["Frontend", "Backend", "Design", "Mobile", "DevOps", "Data Science", "QA"];
@@ -35,6 +36,10 @@ const ClientDashboard = () => {
   // Rating state
   const [ratingLoading, setRatingLoading] = useState(null);
   const [ratingSuccess, setRatingSuccess] = useState({});
+
+  // Edit modal state
+  const [editingProject, setEditingProject] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
     fetchProjects();
@@ -122,11 +127,28 @@ const ClientDashboard = () => {
     try {
       await rateFreelancer(freelancerId, { rating: stars, projectId });
       setRatingSuccess((prev) => ({ ...prev, [projectId]: stars }));
-      fetchProjects(); // refresh to get updated isRated flag
+      fetchProjects();
     } catch (err) {
       console.error(err.response?.data?.message || "Rating failed");
     } finally {
       setRatingLoading(null);
+    }
+  };
+
+  const handleEditOpen = (project) => {
+    setEditingProject(project);
+  };
+
+  const handleEditSave = async (updatedData) => {
+    setEditLoading(true);
+    try {
+      const { data } = await updateProject(editingProject._id, updatedData);
+      dispatch(setProjects(projects.map((p) => (p._id === data._id ? data : p))));
+      setEditingProject(null);
+    } catch (err) {
+      console.error(err.response?.data?.message || "Update failed");
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -138,6 +160,16 @@ const ClientDashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
+
+      {/* Edit Modal — rendered at top level so it overlays everything */}
+      {editingProject && (
+        <EditProjectModal
+          project={editingProject}
+          onSave={handleEditSave}
+          onClose={() => setEditingProject(null)}
+          loading={editLoading}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -340,13 +372,12 @@ const ClientDashboard = () => {
             <p className="text-sm">Create your first project to get started</p>
           </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {projects.map((project) => {
               const assignment = assignments[project._id];
               const freelancerId = assignment?.freelancerId?._id;
               const alreadyRated = project.isRated || ratingSuccess[project._id];
 
-              // Build rating UI to pass into ProjectCard
               let ratingUI = null;
               if (project.status === "completed" && freelancerId) {
                 ratingUI = alreadyRated ? (
@@ -358,7 +389,9 @@ const ClientDashboard = () => {
                   </div>
                 ) : (
                   <StarRating
-                    onSubmit={(stars) => handleRating(project._id, freelancerId, stars)}
+                    onSubmit={(stars) =>
+                      handleRating(project._id, freelancerId, stars)
+                    }
                     loading={ratingLoading === project._id}
                   />
                 );
@@ -370,6 +403,7 @@ const ClientDashboard = () => {
                   project={project}
                   assignment={assignment}
                   onAssign={handleAssign}
+                  onEdit={handleEditOpen}
                   isAllocating={allocating === project._id}
                   ratingComponent={ratingUI}
                 />

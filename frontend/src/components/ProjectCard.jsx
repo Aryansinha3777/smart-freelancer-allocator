@@ -16,9 +16,10 @@ const ProjectCard = ({
   onAssign,
   assignment,
   onReassign,
+  onEdit,
   isAdmin,
   isAllocating,
-  ratingComponent,  // receives the rating UI as a prop
+  ratingComponent,
 }) => {
   const deadline = new Date(project.deadline);
   const today = new Date();
@@ -26,21 +27,47 @@ const ProjectCard = ({
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
+
+      {/* Title row */}
       <div className="flex items-start justify-between mb-3">
-        <div>
+        <div className="flex-1 min-w-0 pr-2">
           <h3 className="font-medium text-slate-800 text-base">{project.title}</h3>
           <p className="text-sm text-slate-400 mt-0.5">{project.requiredSkill}</p>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
+        <div className="flex gap-2 flex-shrink-0 items-center">
           <span className={`text-xs px-2 py-1 rounded-full font-medium ${priorityStyles[project.priority]}`}>
             {project.priority}
           </span>
           <span className={`text-xs px-2 py-1 rounded-full border font-medium ${statusStyles[project.status]}`}>
             {project.status.replace("_", " ")}
           </span>
+          {/* Edit button — only for pending projects, only for client view */}
+          {project.status === "pending" && onEdit && (
+            <button
+              onClick={() => onEdit(project)}
+              className="text-slate-400 hover:text-slate-700 transition-colors ml-1"
+              title="Edit project"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Stats row */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div>
           <p className="text-xs text-slate-400">Estimated</p>
@@ -60,6 +87,7 @@ const ProjectCard = ({
         </div>
       </div>
 
+      {/* Assignment info */}
       {assignment && (
         <div className="bg-slate-50 rounded-lg px-3 py-2 mb-3 text-sm">
           <span className="text-slate-500">Assigned to </span>
@@ -75,6 +103,7 @@ const ProjectCard = ({
         </div>
       )}
 
+      {/* Action buttons */}
       <div className="flex gap-2">
         {project.status === "pending" && onAssign && (
           <button

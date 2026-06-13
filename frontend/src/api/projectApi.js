@@ -6,3 +6,5 @@ export const getProjectById = (id) => axiosInstance.get(`/project/${id}`);
 export const getAllProjects = () => axiosInstance.get("/project/all");
 export const updateProjectStatus = (projectId, status) =>
   axiosInstance.put(`/project/${projectId}/status`, { status });
+export const updateProject = (id, data) =>
+  axiosInstance.put(`/project/${id}`, data);

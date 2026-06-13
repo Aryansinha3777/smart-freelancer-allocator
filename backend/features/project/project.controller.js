@@ -109,3 +109,41 @@ export const updateProjectStatus = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Update project details (only if still pending)
+// @route   PUT /api/project/:id
+// @access  Private (client only)
+export const updateProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Only the owner can edit
+    if (project.clientId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // Only pending projects can be edited
+    if (project.status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending projects can be edited",
+      });
+    }
+
+    const { title, description, requiredSkill, deadline, estimatedHours, priority } =
+      req.body;
+
+    const updated = await Project.findByIdAndUpdate(
+      req.params.id,
+      { title, description, requiredSkill, deadline, estimatedHours, priority },
+      { new: true, runValidators: true }
+    );
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
