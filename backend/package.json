@@ -6,6 +6,7 @@
   "main": "server.js",
   "scripts": {
   "dev": "nodemon server.js",
+  "worker": "nodemon features/allocation/allocationWorker.js",
   "start": "node server.js",
   "seed:admin": "node scripts/seedAdmin.js"
   },
@@ -14,9 +15,11 @@
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "bull": "^4.16.5",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.5.0"
   },

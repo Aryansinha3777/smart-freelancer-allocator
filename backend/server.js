@@ -8,6 +8,8 @@ import projectRoutes from "./features/project/project.routes.js";
 import allocationRoutes from "./features/allocation/allocation.routes.js";
 import notificationRoutes from "./features/notification/notification.routes.js";
 import errorHandler from "./middleware/errorHandler.js";
+import allocationQueue from "./features/allocation/allocationQueue.js";
+import "./config/redis.js";
 
 dotenv.config();
 connectDB();

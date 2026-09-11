@@ -3,10 +3,9 @@ import Freelancer from "../freelancer/freelancer.model.js";
 import Assignment from "./allocation.model.js";
 import runAllocationEngine from "./allocationEngine.js";
 import createNotification from "../notification/notification.service.js";
+import allocationQueue from "./allocationQueue.js";
+import redis from "../../config/redis.js";
 
-// @desc    Trigger allocation for a project
-// @route   POST /api/allocation/assign/:projectId
-// @access  Private (client only)
 export const assignProject = async (req, res) => {
   try {
     const project = await Project.findById(req.params.projectId);
@@ -25,48 +24,21 @@ export const assignProject = async (req, res) => {
       });
     }
 
-    const freelancers = await Freelancer.find({ isAvailable: true });
-    const result = runAllocationEngine(project, freelancers);
-
-    if (!result.success) {
-      return res.status(200).json({
-        success: false,
-        reason: result.reason,
-        message: result.message,
-        suggestions: result.suggestions,
-      });
-    }
-
-    const assignment = await Assignment.create({
-      projectId: project._id,
-      freelancerId: result.freelancer._id,
-      assignedHours: result.assignedHours,
-      schedule: result.schedule,
-      estimatedCompletionDate: result.estimatedCompletionDate,
+    // Add job to queue instead of running allocation directly
+    const job = await allocationQueue.add({
+      projectId: project._id.toString(),
+      clientId: req.user._id.toString(),
     });
 
-    await Freelancer.findByIdAndUpdate(result.freelancer._id, {
-      $inc: { currentLoad: result.assignedHours },
+    // Set initial status in Redis
+    await redis.set(`allocation:${job.id}`, "queued", "EX", 3600);
+
+    // Respond immediately — client doesn't wait for allocation
+    res.status(202).json({
+      message: "Allocation queued successfully",
+      jobId: job.id,
     });
 
-    await Project.findByIdAndUpdate(project._id, { status: "assigned" });
-
-    // Notify the assigned freelancer
-    await createNotification({
-      userId: result.freelancer.userId,
-      message: `You have been assigned a new project: "${project.title}"`,
-      type: "assignment",
-      projectId: project._id,
-    });
-
-    const populated = await Assignment.findById(assignment._id)
-      .populate("projectId", "title requiredSkill deadline priority estimatedHours")
-      .populate({
-        path: "freelancerId",
-        populate: { path: "userId", select: "name email" },
-      });
-
-    res.status(201).json({ success: true, assignment: populated });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -279,6 +251,32 @@ export const cleanupExpiredAssignments = async (req, res) => {
       message: `${expiredOnes.length} expired assignment(s) cleaned up`,
       cleaned: expiredOnes.length,
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Check allocation job status
+// @route   GET /api/allocation/status/:jobId
+// @access  Private (client only)
+export const getAllocationStatus = async (req, res) => {
+  try {
+    const status = await redis.get(`allocation:${req.params.jobId}`);
+
+    if (!status) {
+      return res.status(404).json({
+        message: "Job not found or expired",
+      });
+    }
+
+    // Try to parse as JSON — completed and failed results are JSON objects
+    try {
+      return res.json(JSON.parse(status));
+    } catch {
+      // Simple string status like "queued" or "processing"
+      return res.json({ status });
+    }
+
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
