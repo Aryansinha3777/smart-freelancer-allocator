@@ -1,11 +1,19 @@
 import Notification from "./notification.model.js";
+import redis from "../../config/redis.js";
 
-// Single function used by all controllers to create a notification
-const createNotification = async ({ userId, message, type, projectId = null }) => {
+const createNotification = async ({
+  userId,
+  message,
+  type,
+  projectId = null,
+}) => {
   try {
     await Notification.create({ userId, message, type, projectId });
+
+    // Invalidate unread count cache for this user
+    // so next poll gets fresh count from MongoDB
+    await redis.del(`unread:${userId}`);
   } catch (error) {
-    // Notifications are non-critical — log but never crash the main flow
     console.error("Notification creation failed:", error.message);
   }
 };
