@@ -5,6 +5,7 @@ import allocationQueue from "./allocationQueue.js";
 import Project from "../project/project.model.js";
 import Freelancer from "../freelancer/freelancer.model.js";
 import Assignment from "./allocation.model.js";
+import "../../features/auth/auth.model.js";
 import runAllocationEngine from "./allocationEngine.js";
 import createNotification from "../notification/notification.service.js";
 import connectDB from "../../config/db.js";
@@ -94,16 +95,21 @@ allocationQueue.process(async (job) => {
     });
 
     // Store success result in Redis for frontend to poll
-    await redis.set(
-      `allocation:${job.id}`,
-      JSON.stringify({
-        status: "completed",
-        freelancerName: result.freelancer.userId?.name,
-        estimatedCompletionDate: result.estimatedCompletionDate,
-        schedule: result.schedule,
-      }),
-      "EX", 3600
-    );
+    // Populate userId to get freelancer name
+    const populatedFreelancer = await Freelancer.findById(
+      result.freelancer._id
+    ).populate("userId", "name");
+
+      await redis.set(
+        `allocation:${job.id}`,
+        JSON.stringify({
+          status: "completed",
+          freelancerName: populatedFreelancer?.userId?.name || "Freelancer",
+          estimatedCompletionDate: result.estimatedCompletionDate,
+          schedule: result.schedule,
+        }),
+        "EX", 3600
+      );
 
     console.log(`Job ${job.id} completed successfully`);
 

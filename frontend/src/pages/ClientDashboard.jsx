@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setProjects, addProject } from "../store/projectSlice.js";
 import { createProject, getMyProjects, updateProject } from "../api/projectApi.js";
-import { assignProject, getAssignmentByProject } from "../api/allocationApi.js";
+import { assignProject, getAssignmentByProject, getAllocationStatus } from "../api/allocationApi.js";
 import { rateFreelancer } from "../api/freelancerApi.js";
 import ProjectCard from "../components/ProjectCard.jsx";
 import ScheduleTimeline from "../components/ScheduleTimeline.jsx";
@@ -95,32 +95,59 @@ const ClientDashboard = () => {
     }
   };
 
-  const handleAssign = async (projectId) => {
-    setAllocating(projectId);
-    setAllocationResult(null);
-    try {
-      const { data } = await assignProject(projectId);
-      if (data.success) {
-        setAssignments((prev) => ({ ...prev, [projectId]: data.assignment }));
-        setAllocationResult({ type: "success", assignment: data.assignment });
-        fetchProjects();
-      } else {
-        setAllocationResult({
-          type: "failure",
-          message: data.message,
-          suggestions: data.suggestions,
-        });
+const handleAssign = async (projectId) => {
+  setAllocating(projectId);
+  setAllocationResult(null);
+
+  try {
+    // Step 1 — queue the job, get jobId immediately
+    const { data } = await assignProject(projectId);
+    const jobId = data.jobId;
+
+    // Step 2 — poll every 2 seconds for result
+    const poll = setInterval(async () => {
+      try {
+        const { data: statusData } = await getAllocationStatus(jobId);
+
+        if (statusData.status === "completed") {
+          clearInterval(poll);
+          setAllocating(null);
+          setAllocationResult({
+            type: "success",
+            data: statusData,
+          });
+          fetchProjects();
+        } else if (statusData.status === "failed") {
+          clearInterval(poll);
+          setAllocating(null);
+          setAllocationResult({
+            type: "failure",
+            message: statusData.message,
+            suggestions: statusData.suggestions || [],
+          });
+        }
+        // if "queued" or "processing" — keep polling
+      } catch {
+        clearInterval(poll);
+        setAllocating(null);
       }
-    } catch (err) {
-      setAllocationResult({
-        type: "failure",
-        message: "Allocation failed. Please try again.",
-        suggestions: [],
-      });
-    } finally {
+    }, 2000);
+
+    // Safety — stop polling after 30 seconds no matter what
+    setTimeout(() => {
+      clearInterval(poll);
       setAllocating(null);
-    }
-  };
+    }, 30000);
+
+  } catch (err) {
+    setAllocating(null);
+    setAllocationResult({
+      type: "failure",
+      message: "Failed to queue allocation. Please try again.",
+      suggestions: [],
+    });
+  }
+};
 
   const handleRating = async (projectId, freelancerId, stars) => {
     setRatingLoading(projectId);
@@ -324,14 +351,17 @@ const ClientDashboard = () => {
         }`}>
           {allocationResult.type === "success" ? (
             <div>
-              <p className="font-medium text-green-800 mb-1">✓ Project successfully allocated</p>
-              <p className="text-sm text-green-700">
-                Assigned to{" "}
-                <strong>{allocationResult.assignment.freelancerId?.userId?.name}</strong>
+              <p className="font-medium text-green-800 mb-1">
+                ✓ Project successfully allocated
               </p>
+              {allocationResult.data?.freelancerName && (
+                <p className="text-sm text-green-700">
+                  Assigned to <strong>{allocationResult.data.freelancerName}</strong>
+                </p>
+              )}
               <ScheduleTimeline
-                schedule={allocationResult.assignment.schedule}
-                estimatedCompletionDate={allocationResult.assignment.estimatedCompletionDate}
+                schedule={allocationResult.data?.schedule}
+                estimatedCompletionDate={allocationResult.data?.estimatedCompletionDate}
               />
             </div>
           ) : (
