@@ -13,28 +13,67 @@ export const assignProject = async (req, res) => {
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
-
     if (project.clientId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Not authorized" });
     }
-
     if (project.status !== "pending") {
-      return res.status(400).json({
-        message: `Project is already ${project.status}`,
-      });
+      return res.status(400).json({ message: `Project is already ${project.status}` });
     }
 
-    // Add job to queue instead of running allocation directly
+    if (process.env.NODE_ENV === "production") {
+      // Production — run synchronously, serverless cannot run worker
+      const freelancers = await Freelancer.find({ isAvailable: true });
+      const result = runAllocationEngine(project, freelancers);
+
+      if (!result.success) {
+        return res.status(200).json({
+          success: false,
+          reason: result.reason,
+          message: result.message,
+          suggestions: result.suggestions,
+        });
+      }
+
+      const assignment = await Assignment.create({
+        projectId: project._id,
+        freelancerId: result.freelancer._id,
+        assignedHours: result.assignedHours,
+        schedule: result.schedule,
+        estimatedCompletionDate: result.estimatedCompletionDate,
+      });
+
+      await Freelancer.findByIdAndUpdate(result.freelancer._id, {
+        $inc: { currentLoad: result.assignedHours },
+      });
+
+      await Project.findByIdAndUpdate(project._id, { status: "assigned" });
+
+      await createNotification({
+        userId: result.freelancer.userId,
+        message: `You have been assigned: "${project.title}"`,
+        type: "assignment",
+        projectId: project._id,
+      });
+
+      const populated = await Assignment.findById(assignment._id)
+        .populate("projectId", "title requiredSkill deadline priority estimatedHours")
+        .populate({
+          path: "freelancerId",
+          populate: { path: "userId", select: "name email" },
+        });
+
+      return res.status(201).json({ success: true, assignment: populated });
+    }
+
+    // Development — use Bull queue
     const job = await allocationQueue.add({
       projectId: project._id.toString(),
       clientId: req.user._id.toString(),
     });
 
-    // Set initial status in Redis
     await redis.set(`allocation:${job.id}`, "queued", "EX", 3600);
 
-    // Respond immediately — client doesn't wait for allocation
-    res.status(202).json({
+    return res.status(202).json({
       message: "Allocation queued successfully",
       jobId: job.id,
     });
